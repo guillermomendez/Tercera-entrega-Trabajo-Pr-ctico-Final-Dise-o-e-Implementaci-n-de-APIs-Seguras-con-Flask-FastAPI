@@ -1,0 +1,68 @@
+from flask import Flask, jsonify, request
+from flask_restful import Api, Resource
+from authlib.integrations.flask_client import OAuth
+from functools import wraps
+import jwt
+
+app = Flask(__name__)
+api = Api(app)
+app.config['SECRET_KEY'] = 'your-secret-key'  # Cambia esto por una clave segura
+
+# Configuración de OAuth
+oauth = OAuth(app)
+google = oauth.register(
+    name='google',
+    client_id='your-google-client-id',  # Obtén esto desde Google Cloud Console
+    client_secret='your-google-client-secret',  # Obtén esto desde Google Cloud Console
+    access_token_url='https://accounts.google.com/o/oauth2/token',
+    authorize_url='https://accounts.google.com/o/oauth2/auth',
+    api_base_url='https://www.googleapis.com/oauth2/v1/',
+    client_kwargs={'scope': 'openid email profile'},
+)
+
+# Middleware para verificar el token
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            token = request.headers['Authorization'].split(" ")[1]
+        if not token:
+            return jsonify({'message': 'Token is missing'}), 401
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+        except:
+            return jsonify({'message': 'Token is invalid'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+# Endpoint de login
+@app.route('/login')
+def login():
+    redirect_uri = 'http://localhost:5000/callback'
+    return google.authorize_redirect(redirect_uri)
+
+# Endpoint de callback para manejar la respuesta de Google
+@app.route('/callback')
+def callback():
+    token = google.authorize_access_token()
+    user_info = google.get('userinfo').json()
+    
+    # Generar un JWT simple para nuestra API
+    jwt_token = jwt.encode({
+        'email': user_info['email'],
+        'sub': user_info['id']
+    }, app.config['SECRET_KEY'], algorithm='HS256')
+    
+    return jsonify({'token': jwt_token, 'user': user_info})
+
+# Recurso protegido con Flask-RESTful
+class ProtectedResource(Resource):
+    @token_required
+    def get(self):
+        return jsonify({'message': 'This is a protected resource', 'data': 'Hello, authenticated user!'})
+
+api.add_resource(ProtectedResource, '/protected')
+
+if __name__ == '__main__':
+    app.run(debug=True)
