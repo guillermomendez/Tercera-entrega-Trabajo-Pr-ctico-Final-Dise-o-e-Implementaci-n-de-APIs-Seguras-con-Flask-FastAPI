@@ -1,0 +1,95 @@
+from fastapi import FastAPI, HTTPException, Depends, Security, status
+from fastapi.security import APIKeyHeader, HTTPBasic, HTTPBasicCredentials, HTTPBearer
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+import os
+from typing import Optional
+from pydantic import BaseModel
+
+# Configuración inicial
+app = FastAPI(title="Unified Authentication API")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")  # Cambia por una clave segura
+ALGORITHM = "HS256"
+
+# Modelos
+class User(BaseModel):
+    username: str
+    role: str
+
+# Simulación de base de datos de usuarios
+fake_users_db = {
+    "user1": {
+        "username": "user1",
+        "hashed_password": pwd_context.hash("password123"),
+        "role": "admin"
+    },
+    "user2": {
+        "username": "user2",
+        "hashed_password": pwd_context.hash("password456"),
+        "role": "user"
+    }
+}
+
+# Dependencias de autenticación
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+basic_auth = HTTPBasic(auto_error=False)
+bearer_token = HTTPBearer(auto_error=False)
+
+# Validar API Key
+async def verify_api_key(api_key: Optional[str] = Security(api_key_header)):
+    if api_key == "valid-api-key":  # Reemplaza con validación real
+        return {"username": "api_user", "role": "api"}
+    return None
+
+# Validar Basic Auth
+async def verify_basic_auth(credentials: Optional[HTTPBasicCredentials] = Security(basic_auth)):
+    if credentials:
+        user = fake_users_db.get(credentials.username)
+        if user and pwd_context.verify(credentials.password, user["hashed_password"]):
+            return {"username": credentials.username, "role": user["role"]}
+    return None
+
+# Validar JWT
+async def verify_jwt_token(token: Optional[HTTPBearer] = Security(bearer_token)):
+    try:
+        payload = jwt.decode(token.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        role: str = payload.get("role")
+        if username and role:
+            return {"username": username, "role": role}
+    except JWTError:
+        return None
+    return None
+
+# Middleware para unificar autenticación
+async def get_current_user(
+    api_key: Optional[str] = Depends(verify_api_key),
+    basic: Optional[dict] = Depends(verify_basic_auth),
+    jwt_user: Optional[dict] = Depends(verify_jwt_token)
+):
+    if api_key:
+        return User(**api_key)
+    if basic:
+        return User(**basic)
+    if jwt_user:
+        return User(**jwt_user)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid authentication credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+# Endpoint protegido
+@app.get("/protected", response_model=User)
+async def protected_endpoint(current_user: User = Depends(get_current_user)):
+    return current_user
+
+# Endpoint para generar JWT (simulación)
+@app.post("/login")
+async def login(credentials: HTTPBasicCredentials = Depends(basic_auth)):
+    user = fake_users_db.get(credentials.username)
+    if not user or not pwd_context.verify(credentials.password, user["hashed_password"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = jwt.encode({"sub": user["username"], "role": user["role"]}, SECRET_KEY, algorithm=ALGORITHM)
+    return {"access_token": token, "token_type": "bearer"}
