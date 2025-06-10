@@ -1,0 +1,191 @@
+openapi: 3.0.3
+info:
+  title: Authentication API
+  description: API unificada para autenticación con soporte para login tradicional y OAuth 2.0
+  version: 1.0.0
+servers:
+  - url: http://localhost:5000
+    description: Servidor de desarrollo
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Mensaje de error
+      required:
+        - error
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          description: Dirección de correo electrónico del usuario
+        password:
+          type: string
+          format: password
+          description: Contraseña del usuario
+      required:
+        - email
+        - password
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: Token JWT para autenticación
+      required:
+        - access_token
+    OAuthUrlResponse:
+      type: object
+      properties:
+        auth_url:
+          type: string
+          description: URL de autorización para OAuth
+      required:
+        - auth_url
+    ProtectedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Mensaje de confirmación de acceso
+      required:
+        - message
+paths:
+  /api/auth/login:
+    post:
+      summary: Autenticación tradicional
+      description: Autentica un usuario con email y contraseña
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Autenticación exitosa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Solicitud inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Credenciales inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Error del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/oauth/{provider}:
+    get:
+      summary: Iniciar flujo OAuth
+      description: Obtiene la URL de autorización para el proveedor OAuth especificado
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google]
+          description: Proveedor OAuth (ej. google)
+      responses:
+        '200':
+          description: URL de autorización obtenida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthUrlResponse'
+        '400':
+          description: Proveedor no soportado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Error del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /callback/{provider}:
+    get:
+      summary: Callback OAuth
+      description: Procesa el callback de autorización OAuth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google]
+          description: Proveedor OAuth (ej. google)
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Código de autorización OAuth
+      responses:
+        '200':
+          description: Autenticación OAuth exitosa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Error en la solicitud OAuth
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Error del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/protected:
+    get:
+      summary: Recurso protegido
+      description: Accede a un recur
+so protegido usando JWT
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Acceso concedido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProtectedResponse'
+        '401':
+          description: Token inválido o faltante
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Error del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
